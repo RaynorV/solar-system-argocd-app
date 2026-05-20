@@ -16,6 +16,9 @@ ingress:
   host: solar-system.local
   path: /
   pathType: Prefix
+  tls:
+    enabled: true
+    issuer: selfsigned-issuer
 
 resources:
   requests:

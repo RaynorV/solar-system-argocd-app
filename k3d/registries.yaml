@@ -1,3 +1,4 @@
+# put this config file to /etc/rancher/k3s/registries.yaml on each k3d node
 mirrors:
   "harbor.local:8443":
     endpoint:
