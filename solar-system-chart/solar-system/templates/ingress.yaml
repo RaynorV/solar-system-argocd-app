@@ -6,8 +6,18 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "solar-system.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.issuer }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ include "solar-system.fullname" . }}-tls
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.host }}
       http:
