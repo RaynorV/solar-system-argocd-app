@@ -1,0 +1,9 @@
+mirrors:
+  "harbor.local:8443":
+    endpoint:
+      - "https://harbor.local:8443"
+
+configs:
+  "harbor.local:8443":
+    tls:
+      ca_file: /etc/ssl/certs/harbor/ca.crt

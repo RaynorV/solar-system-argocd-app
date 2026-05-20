@@ -1,0 +1,6 @@
+apiVersion: v2
+name: solar-system
+description: Solar System application Helm chart
+type: application
+version: 0.1.1
+appVersion: "v9"

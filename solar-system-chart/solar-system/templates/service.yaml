@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "solar-system.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "solar-system.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "solar-system.selectorLabels" . | nindent 4 }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}

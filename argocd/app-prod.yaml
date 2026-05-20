@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: solar-system-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: harbor.local:8443/library
+    chart: solar-system
+    targetRevision: 0.1.1
+    helm:
+      valuesObject:
+        replicaCount: 2
+        ingress:
+          host: solar-system-prod.local
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

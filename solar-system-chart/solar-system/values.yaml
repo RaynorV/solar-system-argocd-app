@@ -1,0 +1,38 @@
+replicaCount: 1
+
+image:
+  repository: harbor.local:8443/library/solar-system
+  tag: "v9"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+ingress:
+  enabled: true
+  className: "traefik"
+  host: solar-system.local
+  path: /
+  pathType: Prefix
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"
+
+probes:
+  liveness:
+    path: /
+    port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  readiness:
+    path: /
+    port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 5

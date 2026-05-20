@@ -1,0 +1,12 @@
+replicaCount: 1
+
+ingress:
+  host: solar-system-dev.local
+
+resources:
+  requests:
+    memory: "32Mi"
+    cpu: "50m"
+  limits:
+    memory: "64Mi"
+    cpu: "100m"
