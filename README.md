@@ -1,0 +1,1 @@
+# solar-system-argocd-app
