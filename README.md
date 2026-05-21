@@ -11,6 +11,7 @@ A complete GitOps deployment pipeline using Harbor OCI registry, k3d Kubernetes 
 | Argo CD | stable | GitOps continuous delivery |
 | Helm | v3 | Application packaging and deployment |
 | Traefik | built-in | Ingress controller (k3d default) |
+| cert-manager | latest | Automatic TLS certificate management |
 
 ## Architecture
 
@@ -22,18 +23,20 @@ Windows 10 + Docker Desktop (WSL2)
 │   │   ├── harbor.local:8443  (HTTPS)
 │   │   ├── project: library
 │   │   │   ├── solar-system:v9        (Docker image)
-│   │   │   └── solar-system:0.1.1     (Helm chart OCI)
+│   │   │   └── solar-system:0.1.2     (Helm chart OCI)
 │   │
 │   └── k3d cluster (k3s in Docker)
 │       ├── loadbalancer  → ports 80/443
 │       ├── server-0 node
 │       └── agent-0 node
+│           ├── namespace: cert-manager
+│           │   └── cert-manager + ClusterIssuer (selfsigned)
 │           ├── namespace: argocd
 │           │   └── Argo CD
 │           ├── namespace: dev
-│           │   └── solar-system (1 replica)
+│           │   └── solar-system (1 replica, HTTPS)
 │           └── namespace: prod
-│               └── solar-system (2 replicas)
+│               └── solar-system (2 replicas, HTTPS)
 ```
 
 ## Repository Structure
@@ -58,8 +61,9 @@ Windows 10 + Docker Desktop (WSL2)
 │   └── app-prod.yaml               # Argo CD Application for prod
 ├── k3d/
 │   └── registries.yaml             # k3d registry config
+│   └── cluster-issuer.yaml         # cert-manager ClusterIssuer
 ├── README.md
-└── screenshots/                    # Screenshots of harbor, argocd, web app ui 
+└── screenshots/                    # Screenshots of harbor, argocd, web app ui with valid certs
 ```
 
 ## Prerequisites
@@ -125,19 +129,6 @@ docker push harbor.local:8443/library/solar-system:v9
 
 ### 4. Deploy k3d Cluster
 
-Create `/etc/rancher/k3s/registries.yaml` on k3d-k3d-main-server-0 and k3d-k3d-main-agent-0:
-
-```yaml
-mirrors:
-  "harbor.local:8443":
-    endpoint:
-      - "https://harbor.local:8443"
-configs:
-  "harbor.local:8443":
-    tls:
-      ca_file: /etc/ssl/certs/harbor/ca.crt
-```
-
 Create k3d cluster:
 
 ```bash
@@ -166,7 +157,30 @@ Add `harbor.local` to CoreDNS with the IP that was found before:
 ```bash
 KUBE_EDITOR="nano" kubectl edit configmap coredns -n kube-system
 # Add to NodeHosts section:
-# 172.18.0.6 harbor.local       <-- in my case
+# 172.18.0.6 harbor.local       <-- use your actual IP
+```
+
+Copy Harbor certificate to k3d nodes so containerd can pull images:
+
+```bash
+docker exec k3d-k3d-main-server-0 mkdir -p /etc/ssl/certs/harbor
+docker exec k3d-k3d-main-agent-0 mkdir -p /etc/ssl/certs/harbor
+
+docker cp harbor/certs/cert.pem k3d-k3d-main-server-0:/etc/ssl/certs/harbor/ca.crt
+docker cp harbor/certs/cert.pem k3d-k3d-main-agent-0:/etc/ssl/certs/harbor/ca.crt
+```
+
+Create `/etc/rancher/k3s/registries.yaml` on k3d-k3d-main-server-0 and k3d-k3d-main-agent-0:
+
+```yaml
+mirrors:
+  "harbor.local:8443":
+    endpoint:
+      - "https://harbor.local:8443"
+configs:
+  "harbor.local:8443":
+    tls:
+      ca_file: /etc/ssl/certs/harbor/ca.crt
 ```
 
 ### 5. Deploy Argo CD
@@ -236,15 +250,67 @@ kubectl get pods -n dev
 kubectl get pods -n prod
 ```
 
-Add to Windows hosts:
+### 9. Setup TLS for Ingress with cert-manager
+
+Install cert-manager:
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+```
+
+Create cluster-issuer with file `k3d/cluster-issuer.yaml`:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+```
+
+Verify it (READY should be True):
+
+```bash
+kubectl get clusterissuer
+```
+
+Verify certificates were issued:
+
+```bash
+kubectl get certificate -n dev
+kubectl get certificate -n prod
+# READY should be True
+```
+
+Add to Windows hosts (`C:\Windows\System32\drivers\etc\hosts`):
 ```
 127.0.0.1 solar-system-dev.local
 127.0.0.1 solar-system-prod.local
 ```
 
 Applications available at:
-- `http://solar-system-dev.local` — dev environment (1 replica)
-- `http://solar-system-prod.local` — prod environment (2 replicas)
+- `https://solar-system-dev.local` — dev environment (1 replica)
+- `https://solar-system-prod.local` — prod environment (2 replicas)
+
+Import the CA cert into Windows Certificate Store to suppress a warning in a browser:
+
+```powershell
+# PowerShell as Admin
+kubectl get secret -n dev solar-system-dev-solar-system-tls \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > selfsigned-ca-dev.crt
+
+kubectl get secret -n dev solar-system-prod-solar-system-tls \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > selfsigned-ca-dev.crt
+
+Import-Certificate -FilePath "selfsigned-ca-dev.crt" `
+  -CertStoreLocation Cert:\LocalMachine\Root
+
+Import-Certificate -FilePath "selfsigned-ca-prod.crt" `
+  -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+After that, you can see a message stating that the certificates are valid in a browser.
 
 ## Helm Chart Overview
 
@@ -271,7 +337,7 @@ readinessProbe:
 
 **Service** — ClusterIP on port 80
 
-**Ingress** — Traefik ingress with host-based routing
+**Ingress** — Traefik ingress with TLS termination via cert-manager
 
 ## Environment Differences
 
@@ -283,6 +349,7 @@ readinessProbe:
 | CPU limit | 100m | 200m |
 | Memory limit | 64Mi | 128Mi |
 | Ingress host | solar-system-dev.local | solar-system-prod.local |
+| TLS | enabled (self-signed) | enabled (self-signed) |
 
 ## Argo CD Applications
 
@@ -302,3 +369,4 @@ syncPolicy:
 - CoreDNS NodeHosts entry ensures Harbor DNS resolution inside the cluster
 - SSL certificate uses SAN (Subject Alternative Name) as required by modern TLS clients
 - Helm charts are stored as OCI artifacts in Harbor
+- cert-manager automates the full TLS certificate lifecycle: issuance, storage as Secret, and renewal
